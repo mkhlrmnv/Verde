@@ -38,3 +38,11 @@ def test_aggregate_profile_input_cv_and_cover_letters_deterministic() -> None:
     assert "=== COVER_LETTER_1 ===\nLETTER A" in combined
     assert "=== COVER_LETTER_2 ===\nLETTER B" in combined
     assert combined.find("LETTER A") < combined.find("LETTER B")
+
+
+def test_parse_uploaded_documents_deprecated() -> None:
+    """Test that deprecated parse_uploaded_documents is a no-op."""
+    from app.state import AppState
+    state = AppState()
+    state.parse_uploaded_documents()
+

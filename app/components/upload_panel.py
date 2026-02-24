@@ -78,8 +78,7 @@ def upload_panel() -> rx.Component:
                 spacing="3",
             ),
             rx.hstack(
-                rx.button("Parse documents", on_click=AppState.parse_uploaded_documents, loading=AppState.is_parsing),
-                rx.button("Generate profile", on_click=AppState.build_profile_once, loading=AppState.is_generating),
+                rx.button("Parse & Generate Profile", on_click=AppState.parse_and_generate_profile, loading=AppState.is_processing),
                 rx.cond(
                     AppState.has_saved_profile,
                     rx.button("Use existing saved profile", on_click=AppState.load_saved_profile_json),

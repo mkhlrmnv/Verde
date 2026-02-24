@@ -27,8 +27,7 @@ class AppState(rx.State):
     extraction_warnings: list[str] = []
     error_message: str = ""
     success_message: str = ""
-    is_parsing: bool = False
-    is_generating: bool = False
+    is_processing: bool = False
     is_saving: bool = False
     has_saved_profile: bool = False
 
@@ -144,6 +143,13 @@ class AppState(rx.State):
         validated = ApplicantProfile.model_validate(profile)
         self.profile = validated.model_dump()
 
+    def _navigate_to_profile(self) -> None:
+        return rx.redirect("/profile")
+
+    def parse_and_generate_then_redirect(self) -> None:
+        self.parse_and_generate_profile()
+        return rx.redirect("/loading")
+
     def check_saved_profile_exists(self) -> None:
         output_path = Path("output") / "applicant_profile.json"
         self.has_saved_profile = saved_profile_exists(str(output_path))
@@ -237,15 +243,19 @@ class AppState(rx.State):
             self._debug(traceback.format_exc())
 
     def parse_uploaded_documents(self) -> None:
-        self._debug("parse_uploaded_documents called")
+        """Deprecated: use parse_and_generate_profile instead."""
+        pass
+
+    def parse_and_generate_profile(self) -> None:
+        self._debug("parse_and_generate_profile called")
         self._clear_messages()
-        self.is_parsing = True
+        self.is_processing = True
         self.extraction_warnings = []
 
         try:
             if not self.uploaded_cv:
-                self.error_message = "Upload a CV before parsing."
-                self._debug("Parse aborted: no uploaded_cv in state")
+                self.error_message = "Upload a CV before processing."
+                self._debug("Processing aborted: no uploaded_cv in state")
                 return
 
             cv_name = self.uploaded_cv["name"]
@@ -275,44 +285,29 @@ class AppState(rx.State):
             self._debug(f"CV chars: {len(cv_text)} | cover letters: {len(cover_letters)}")
             self.combined_text = aggregate_profile_input(cv_text=cv_text, cover_letters=cover_letters)
             self._debug(f"Combined text chars: {len(self.combined_text)}")
-            self.success_message = "Documents parsed successfully."
-            self._debug(self.success_message)
-        except Exception as exc:
-            self.error_message = f"Parse failed: {exc}"
-            self._debug(f"Parse exception: {exc}")
-            self._debug(traceback.format_exc())
-        finally:
-            self.is_parsing = False
-            self._debug("parse_uploaded_documents finished")
 
-    def build_profile_once(self) -> None:
-        self._debug("build_profile_once called")
-        self._clear_messages()
-        if self.is_generating:
-            self._debug("Generation skipped: already in progress")
-            return
+            if not self.combined_text.strip():
+                self.error_message = "Unable to extract meaningful text from uploaded documents."
+                self._debug(self.error_message)
+                return
 
-        if not self.combined_text.strip():
-            self.error_message = "Parse uploaded documents before generating profile."
-            self._debug("Generation aborted: combined_text is empty")
-            return
-
-        self.is_generating = True
-        try:
+            self._debug(f"Starting profile generation with {len(self.combined_text)} chars")
             generated = generate_profile_json_once(self.combined_text)
             self.profile = generated.model_dump()
-            self.success_message = "Profile generated successfully. Review and edit before saving."
+            self.success_message = "Profile generated successfully! Redirecting to profile page..."
             self._debug(self.success_message)
+            rx.redirect("/profile")
+
         except ProfileGenerationError as exc:
             self.error_message = str(exc)
             self._debug(f"Profile generation error: {exc}")
         except Exception as exc:
-            self.error_message = f"Unexpected generation failure: {exc}"
-            self._debug(f"Unexpected generation exception: {exc}")
+            self.error_message = f"Unexpected processing failure: {exc}"
+            self._debug(f"Unexpected processing exception: {exc}")
             self._debug(traceback.format_exc())
         finally:
-            self.is_generating = False
-            self._debug("build_profile_once finished")
+            self.is_processing = False
+            self._debug("parse_and_generate_profile finished")
 
     def save_profile_json(self) -> None:
         self._debug("save_profile_json called")
