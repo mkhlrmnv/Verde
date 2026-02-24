@@ -20,7 +20,7 @@ def upload_panel() -> rx.Component:
                 rx.text(
                     "Upload your CV and cover letters. We'll extract experience, skills, and preferences into a structured profile.",
                     size="4",
-                    color_scheme="gray",
+                    color="#4b5563",
                     text_align="center",
                     max_width="44rem",
                 ),
@@ -32,7 +32,7 @@ def upload_panel() -> rx.Component:
             rx.upload(
                 rx.vstack(
                     rx.heading("Click to upload or drag and drop", size="5"),
-                    rx.text("PDF, DOCX, or TXT", size="2", color_scheme="gray"),
+                    rx.text("PDF, DOCX, or TXT", size="2", color="#6b7280"),
                     spacing="2",
                     align_items="center",
                 ),
@@ -51,7 +51,7 @@ def upload_panel() -> rx.Component:
             rx.cond(
                 AppState.has_files,
                 rx.vstack(
-                    rx.text("Selected Files", weight="medium", size="2", color_scheme="gray"),
+                    rx.text("Selected Files", weight="medium", size="2", color="#374151"),
                     rx.vstack(
                         rx.foreach(
                             AppState.selected_files,
@@ -81,15 +81,19 @@ def upload_panel() -> rx.Component:
                 ),
                 rx.cond(
                     AppState.has_saved_profile,
-                    rx.button("Use existing saved profile", on_click=AppState.load_saved_profile_json, variant="soft", size="3"),
-                    rx.button("Use existing saved profile", disabled=True, variant="soft", size="3"),
+                    rx.button("Use existing saved profile", on_click=AppState.load_saved_profile_json, size="3"),
+                    rx.button("Use existing saved profile", disabled=True, size="3"),
                 ),
                 wrap="wrap",
                 justify="end",
                 width="100%",
                 margin_top="1.5rem",
             ),
-            rx.text("The first valid file is treated as CV; additional files are treated as cover letters.", size="1", color_scheme="gray"),
+            rx.text(
+                "The first valid file is treated as CV; additional files are treated as cover letters.",
+                size="1",
+                color="#6b7280",
+            ),
             rx.cond(
                 AppState.has_warnings,
                 rx.callout(

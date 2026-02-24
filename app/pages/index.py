@@ -49,4 +49,5 @@ def index() -> rx.Component:
         width="100%",
         min_height="100vh",
         background_color="#f5f5f5",
+        color="#111827",
     )

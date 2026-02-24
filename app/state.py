@@ -7,6 +7,7 @@ import uuid
 
 import reflex as rx
 from pydantic import ValidationError
+from reflex.utils.misc import run_in_thread
 
 from app.models.profile import ApplicantProfile
 from app.services.aggregate_input import aggregate_profile_input
@@ -261,65 +262,84 @@ class AppState(rx.State):
             self._debug(f"File upload exception: {exc}")
             self._debug(traceback.format_exc())
 
-    def parse_and_generate_profile(self) -> None:
-        self._debug("parse_and_generate_profile called")
-        if self.is_processing:
-            return
+    @rx.event(background=True)
+    async def parse_and_generate_profile(self) -> None:
+        async with self:
+            self._debug("parse_and_generate_profile called")
+            if self.is_processing:
+                return
 
-        self._clear_messages()
-        self.is_processing = True
-        self.step = "processing"
-        self.extraction_warnings = []
+            self._clear_messages()
+            self.is_processing = True
+            self.step = "processing"
+            self.extraction_warnings = []
 
-        try:
             if not self.uploaded_cv:
                 self.error_message = "Upload a CV before processing."
                 self.step = "upload"
+                self.is_processing = False
                 return
 
             cv_name = self.uploaded_cv["name"]
             cv_path = self.uploaded_cv["path"]
+            cover_file_infos = list(self.uploaded_cover_letters[:MAX_COVER_LETTERS])
+
+        try:
             try:
-                cv_text = extract_text_from_file(cv_path)
+                cv_text = await run_in_thread(lambda: extract_text_from_file(cv_path))
             except TextExtractionError as exc:
-                self.error_message = f"CV extraction failed: {cv_name}: {exc}"
-                self.step = "upload"
+                async with self:
+                    self.error_message = f"CV extraction failed: {cv_name}: {exc}"
+                    self.step = "upload"
+                    self.is_processing = False
                 return
 
             cover_letters: list[str] = []
-            for file_info in self.uploaded_cover_letters[:MAX_COVER_LETTERS]:
+            warnings: list[str] = []
+            for file_info in cover_file_infos:
                 file_name = file_info["name"]
                 file_path = file_info["path"]
                 try:
-                    text = extract_text_from_file(file_path)
+                    text = await run_in_thread(lambda path=file_path: extract_text_from_file(path))
                     cover_letters.append(text)
                 except TextExtractionError as exc:
-                    warning = f"Cover letter extraction failed for {file_name}: {exc}"
-                    self.extraction_warnings.append(warning)
+                    warnings.append(f"Cover letter extraction failed for {file_name}: {exc}")
 
-            self.combined_text = aggregate_profile_input(cv_text=cv_text, cover_letters=cover_letters)
+            combined_text = aggregate_profile_input(cv_text=cv_text, cover_letters=cover_letters)
 
-            if not self.combined_text.strip():
-                self.error_message = "Unable to extract meaningful text from uploaded documents."
-                self.step = "upload"
+            if not combined_text.strip():
+                async with self:
+                    self.combined_text = ""
+                    self.extraction_warnings = warnings
+                    self.error_message = "Unable to extract meaningful text from uploaded documents."
+                    self.step = "upload"
+                    self.is_processing = False
                 return
 
-            generated = generate_profile_json_once(self.combined_text)
-            self.profile = generated.model_dump()
-            self.success_message = "Profile generated successfully."
-            self.step = "profile"
+            generated = await run_in_thread(lambda: generate_profile_json_once(combined_text))
+
+            async with self:
+                self.combined_text = combined_text
+                self.extraction_warnings = warnings
+                self.profile = generated.model_dump()
+                self.success_message = "Profile generated successfully."
+                self.step = "profile"
+                self.is_processing = False
 
         except ProfileGenerationError as exc:
-            self.error_message = str(exc)
-            self.step = "upload"
+            async with self:
+                self.error_message = str(exc)
+                self.step = "upload"
+                self.is_processing = False
             self._debug(f"Profile generation error: {exc}")
         except Exception as exc:
-            self.error_message = f"Unexpected processing failure: {exc}"
-            self.step = "upload"
+            async with self:
+                self.error_message = f"Unexpected processing failure: {exc}"
+                self.step = "upload"
+                self.is_processing = False
             self._debug(f"Unexpected processing exception: {exc}")
             self._debug(traceback.format_exc())
         finally:
-            self.is_processing = False
             self._debug("parse_and_generate_profile finished")
 
     def save_profile_json(self) -> None:

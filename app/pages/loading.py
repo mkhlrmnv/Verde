@@ -17,13 +17,13 @@ def processing_view() -> rx.Component:
         rx.vstack(
             rx.spinner(size="3"),
             rx.heading("Processing your profile...", size="8"),
-            rx.text("We're extracting your documents and generating your profile with AI.", size="4", color_scheme="gray"),
+            rx.text("We're extracting your documents and generating your profile with AI.", size="4", color="#4b5563"),
             rx.vstack(
-                rx.foreach(PROCESSING_MESSAGES, lambda item: rx.text("• " + item, size="2", color_scheme="gray")),
+                rx.foreach(PROCESSING_MESSAGES, lambda item: rx.text("• " + item, size="2", color="#6b7280")),
                 align_items="start",
                 spacing="1",
             ),
-            rx.text("Powered by Google AI", size="1", color_scheme="gray"),
+            rx.text("Powered by Google AI", size="1", color="#9ca3af"),
             spacing="5",
             align_items="center",
             justify_content="center",
