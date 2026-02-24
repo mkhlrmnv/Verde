@@ -1,8 +1,5 @@
 # UI/UX Upgrade Plan — Applicant Profile Builder
 
-## Is the current instruction enough context?
-Mostly yes for implementing this UX refresh in the current codebase.
-
 Enough to proceed now:
 - Split flow into separate pages (upload/processing vs applicant profile/stats).
 - Improve visual layout (centered containers and cleaner section grouping).
@@ -11,9 +8,9 @@ Enough to proceed now:
 - Add "load existing saved profile" path to avoid unnecessary AI calls.
 
 Still needs confirmation (non-blocking if defaults are used):
-- Whether replacing an existing CV should overwrite previous CV immediately (recommended: yes).
-- Whether loading existing JSON should also populate upload history/warnings (recommended: profile only).
-- Whether saved JSON source remains only `output/applicant_profile.json` or supports multiple saved profiles later.
+- Whether replacing an existing CV should overwrite previous CV immediately (answer: yes).
+- Whether loading existing JSON should also populate upload history/warnings (answer: profile only).
+- Whether saved JSON source remains only `output/applicant_profile.json` or supports multiple saved profiles later. (answer: Only one - latest one)
 
 ## TODO (file-by-file, implementation-focused)
 
