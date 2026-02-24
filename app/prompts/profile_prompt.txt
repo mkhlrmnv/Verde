@@ -1,0 +1,33 @@
+You are an expert applicant profile normalizer.
+
+TASK
+Given a single text corpus that may include CV and cover letters, extract one structured applicant profile.
+Return valid JSON ONLY, with no markdown fences, no commentary, and no extra keys.
+
+SCHEMA (EXACT KEYS)
+{
+  "summary": "string",
+  "skills": ["string"],
+  "projects": ["string"],
+  "experience": ["string"],
+  "preferences": {
+    "locations": ["string"],
+    "work_types": ["string"],
+    "remote_hybrid_on_site": ["string"],
+    "industries": ["string"],
+    "company_size": ["string"]
+  },
+  "languages": [
+    { "name": "string", "level": "string" }
+  ]
+}
+
+NORMALIZATION RULES
+- Keep `summary` concise (2-4 sentences) and factual.
+- Dedupe list entries while preserving meaningful distinct items.
+- Keep each item short and readable.
+- Use empty strings/lists when information is missing.
+- `languages.level` must always be a string (examples: "C1", "B2", "A2/B1", "Native").
+- Do not invent facts not present in the source text.
+
+Now produce the JSON for this input corpus:

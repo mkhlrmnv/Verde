@@ -1,0 +1,23 @@
+[project]
+name = "applicant-profile-builder"
+version = "0.1.0"
+description = "Reflex app for generating structured applicant profiles from CV and cover letters"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "reflex>=0.8.27,<0.9",
+    "google-genai>=1.0.0,<2.0",
+    "pydantic>=2.10,<3.0",
+    "python-dotenv>=1.0.1,<2.0",
+    "pypdf>=5.0.1,<6.0",
+    "python-docx>=1.1.2,<2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
