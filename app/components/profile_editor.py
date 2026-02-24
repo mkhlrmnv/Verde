@@ -16,8 +16,8 @@ def _chip_list(values: rx.Var, remove_handler, text_color: str = FIELD_TEXT_COLO
             values,
             lambda item, idx: rx.badge(
                 rx.hstack(
-                    rx.text(item, size="1", color="#1923339E"),
-                    rx.icon_button("x", size="1", variant="ghost", on_click=lambda i=idx: remove_handler(i)),
+                    rx.text(item, size="1", color=text_color),
+                    rx.icon_button("x", size="1", variant="ghost", on_click=remove_handler(idx)),
                     align="center",
                     spacing="1",
                 ),
@@ -103,7 +103,7 @@ def _experience_section() -> rx.Component:
                                 color=FIELD_TEXT_COLOR,
                                 background_color=FIELD_BG_COLOR
                             ),
-                            rx.icon_button("x", on_click=lambda i=idx: AppState.remove_experience(i), variant="ghost"),
+                            rx.icon_button("x", on_click=AppState.remove_experience(idx), variant="ghost"),
                             width="100%",
                         ),
                         rx.input(
@@ -202,7 +202,7 @@ def _projects_section() -> rx.Component:
                                 color=FIELD_TEXT_COLOR,
                                 background_color=FIELD_BG_COLOR,
                             ),
-                            rx.icon_button("x", on_click=lambda i=idx: AppState.remove_project(i), variant="ghost"),
+                            rx.icon_button("x", on_click=AppState.remove_project(idx), variant="ghost"),
                             width="100%",
                         ),
                         rx.text_area(
@@ -371,7 +371,7 @@ def _languages_section() -> rx.Component:
                         color=FIELD_TEXT_COLOR,
                         background_color=FIELD_BG_COLOR,
                     ),
-                    rx.icon_button("x", on_click=lambda i=idx: AppState.remove_language(i), variant="ghost"),
+                    rx.icon_button("x", on_click=AppState.remove_language(idx), variant="ghost"),
                     width="100%",
                 ),
             ),
