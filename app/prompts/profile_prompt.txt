@@ -8,8 +8,17 @@ SCHEMA (EXACT KEYS)
 {
   "summary": "string",
   "skills": ["string"],
-  "projects": ["string"],
-  "experience": ["string"],
+  "projects": [
+    { "name": "string", "description": "string" }
+  ],
+  "experience": [
+    {
+      "role": "string",
+      "company": "string",
+      "duration": "string",
+      "description": "string"
+    }
+  ],
   "preferences": {
     "locations": ["string"],
     "work_types": ["string"],
@@ -25,7 +34,9 @@ SCHEMA (EXACT KEYS)
 NORMALIZATION RULES
 - Keep `summary` concise (2-4 sentences) and factual.
 - Dedupe list entries while preserving meaningful distinct items.
-- Keep each item short and readable.
+- Keep each string short and readable.
+- For `projects`, always return objects with exact keys `name` and `description`.
+- For `experience`, always return objects with exact keys `role`, `company`, `duration`, and `description`.
 - Use empty strings/lists when information is missing.
 - `languages.level` must always be a string (examples: "C1", "B2", "A2/B1", "Native").
 - Do not invent facts not present in the source text.

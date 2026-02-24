@@ -13,79 +13,83 @@ ACCEPT_TYPES = {
 
 
 def upload_panel() -> rx.Component:
-    return rx.card(
+    return rx.box(
         rx.vstack(
-            rx.heading("Upload documents", size="5"),
-            rx.text("Upload one CV and up to 10 cover letters (.pdf, .docx, .txt). Files are stored right after selection."),
-            rx.hstack(
-                rx.card(
-                    rx.vstack(
-                        rx.heading("CV", size="4"),
-                        rx.text("Max 1 file"),
-                        rx.upload(
-                            rx.vstack(
-                                rx.button("Select CV", type="button"),
-                                rx.text("or drag and drop"),
-                            ),
-                            id="upload_cv",
-                            multiple=True,
-                            accept=ACCEPT_TYPES,
-                            on_drop=AppState.handle_cv_upload(rx.upload_files(upload_id="upload_cv")),
-                        ),
-                        rx.cond(AppState.has_cv, rx.text("Selected CV: " + AppState.uploaded_cv["name"], size="2")),
-                        spacing="2",
-                        align_items="start",
-                        width="100%",
-                    ),
-                    width="100%",
+            rx.vstack(
+                rx.heading("Build your applicant profile", size="9", text_align="center"),
+                rx.text(
+                    "Upload your CV and cover letters. We'll extract experience, skills, and preferences into a structured profile.",
+                    size="4",
+                    color_scheme="gray",
+                    text_align="center",
+                    max_width="44rem",
                 ),
-                rx.card(
-                    rx.vstack(
-                        rx.heading("Cover letters", size="4"),
-                        rx.text("Max 10 files"),
-                        rx.upload(
-                            rx.vstack(
-                                rx.button("Select cover letters", type="button"),
-                                rx.text("or drag and drop"),
-                            ),
-                            id="upload_cover_letters",
-                            multiple=True,
-                            accept=ACCEPT_TYPES,
-                            on_drop=AppState.handle_cover_letter_uploads(
-                                rx.upload_files(upload_id="upload_cover_letters")
-                            ),
-                        ),
-                        rx.cond(
-                            AppState.cover_letter_count > 0,
-                            rx.vstack(
-                                rx.text("Selected cover letters:", size="2"),
-                                rx.foreach(
-                                    AppState.uploaded_cover_letters,
-                                    lambda item: rx.text("• " + item["name"], size="2"),
-                                ),
-                                spacing="1",
-                                align_items="start",
-                            ),
-                        ),
-                        spacing="2",
-                        align_items="start",
-                        width="100%",
-                    ),
-                    width="100%",
-                ),
-                width="100%",
-                align="start",
                 spacing="3",
+                align_items="center",
+                width="100%",
+                margin_bottom="2rem",
+            ),
+            rx.upload(
+                rx.vstack(
+                    rx.heading("Click to upload or drag and drop", size="5"),
+                    rx.text("PDF, DOCX, or TXT", size="2", color_scheme="gray"),
+                    spacing="2",
+                    align_items="center",
+                ),
+                id="upload_documents",
+                multiple=True,
+                accept=ACCEPT_TYPES,
+                on_drop=AppState.handle_document_uploads(rx.upload_files(upload_id="upload_documents")),
+                width="100%",
+                border="2px dashed",
+                border_color="gray.5",
+                border_radius="20px",
+                padding="3rem",
+                background_color="white",
+                cursor="pointer",
+            ),
+            rx.cond(
+                AppState.has_files,
+                rx.vstack(
+                    rx.text("Selected Files", weight="medium", size="2", color_scheme="gray"),
+                    rx.vstack(
+                        rx.foreach(
+                            AppState.selected_files,
+                            lambda item: rx.hstack(
+                                rx.badge(item["kind"], variant="soft", color_scheme="gray"),
+                                rx.text(item["name"], size="2"),
+                                justify="start",
+                                align="center",
+                                width="100%",
+                            ),
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    spacing="2",
+                    width="100%",
+                    margin_top="1.5rem",
+                ),
             ),
             rx.hstack(
-                rx.button("Parse & Generate Profile", on_click=AppState.parse_and_generate_profile, loading=AppState.is_processing),
+                rx.button(
+                    "Generate Profile",
+                    on_click=AppState.parse_and_generate_profile,
+                    loading=AppState.is_processing,
+                    disabled=AppState.has_cv == False,
+                    size="3",
+                ),
                 rx.cond(
                     AppState.has_saved_profile,
-                    rx.button("Use existing saved profile", on_click=AppState.load_saved_profile_json),
-                    rx.button("Use existing saved profile", disabled=True),
+                    rx.button("Use existing saved profile", on_click=AppState.load_saved_profile_json, variant="soft", size="3"),
+                    rx.button("Use existing saved profile", disabled=True, variant="soft", size="3"),
                 ),
                 wrap="wrap",
+                justify="end",
+                width="100%",
+                margin_top="1.5rem",
             ),
+            rx.text("The first valid file is treated as CV; additional files are treated as cover letters.", size="1", color_scheme="gray"),
             rx.cond(
                 AppState.has_warnings,
                 rx.callout(
@@ -94,8 +98,12 @@ def upload_panel() -> rx.Component:
                     color_scheme="amber",
                 ),
             ),
-            spacing="4",
+            spacing="3",
             align_items="start",
+            width="100%",
         ),
         width="100%",
+        max_width="48rem",
+        margin_x="auto",
+        padding_x="1rem",
     )

@@ -2,39 +2,44 @@ from __future__ import annotations
 
 import reflex as rx
 
-from app.state import AppState
+PROCESSING_MESSAGES = [
+    "Reading your documents...",
+    "Extracting work experience...",
+    "Identifying key skills...",
+    "Structuring projects...",
+    "Analyzing preferences...",
+    "Finalizing profile...",
+]
 
 
-def loading() -> rx.Component:
-    return rx.container(
+def processing_view() -> rx.Component:
+    return rx.box(
         rx.vstack(
-            rx.heading("Processing your profile...", size="8"),
             rx.spinner(size="3"),
-            rx.text("We're extracting your documents and generating your profile with AI.", size="5"),
-            rx.text("This may take a few moments. Please stay on this page.", size="4"),
-            rx.cond(
-                AppState.success_message != "",
-                rx.vstack(
-                    rx.callout(AppState.success_message, icon="circle_check", color_scheme="green"),
-                    rx.script("setTimeout(() => window.location = '/profile', 2000)"),
-                    spacing="2",
-                ),
+            rx.heading("Processing your profile...", size="8"),
+            rx.text("We're extracting your documents and generating your profile with AI.", size="4", color_scheme="gray"),
+            rx.vstack(
+                rx.foreach(PROCESSING_MESSAGES, lambda item: rx.text("• " + item, size="2", color_scheme="gray")),
+                align_items="start",
+                spacing="1",
             ),
-            rx.cond(
-                AppState.error_message != "",
-                rx.vstack(
-                    rx.callout(AppState.error_message, icon="triangle_alert", color_scheme="red"),
-                    rx.link(rx.button("Go back to upload", variant="solid"), href="/"),
-                    spacing="2",
-                ),
-            ),
-            spacing="6",
+            rx.text("Powered by Google AI", size="1", color_scheme="gray"),
+            spacing="5",
             align_items="center",
             justify_content="center",
-            min_height="100vh",
+            min_height="60vh",
             text_align="center",
             width="100%",
         ),
-        max_width="600px",
-        padding_y="5",
+        max_width="36rem",
+        margin_x="auto",
+        padding_x="1rem",
+    )
+
+
+def loading() -> rx.Component:
+    return rx.box(
+        rx.script("window.location.replace('/');"),
+        width="100%",
+        min_height="1px",
     )

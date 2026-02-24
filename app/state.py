@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import traceback
-from typing import Any
+from typing import Any, Literal
 import uuid
 
 import reflex as rx
@@ -17,16 +17,22 @@ from app.services.text_extract import TextExtractionError, extract_text_from_fil
 
 
 MAX_COVER_LETTERS = 10
+MAX_TOTAL_UPLOADS = MAX_COVER_LETTERS + 1
+Step = Literal["upload", "processing", "profile"]
 
 
 class AppState(rx.State):
     session_id: str = uuid.uuid4().hex
+    step: Step = "upload"
+
     uploaded_cv: dict[str, str] = {}
     uploaded_cover_letters: list[dict[str, str]] = []
+
     combined_text: str = ""
     extraction_warnings: list[str] = []
     error_message: str = ""
     success_message: str = ""
+
     is_processing: bool = False
     is_saving: bool = False
     has_saved_profile: bool = False
@@ -34,8 +40,12 @@ class AppState(rx.State):
     profile: dict[str, Any] = ApplicantProfile().model_dump()
 
     new_skill: str = ""
-    new_project: str = ""
-    new_experience: str = ""
+    new_project_name: str = ""
+    new_project_description: str = ""
+    new_experience_role: str = ""
+    new_experience_company: str = ""
+    new_experience_duration: str = ""
+    new_experience_description: str = ""
     new_language_name: str = ""
     new_language_level: str = ""
     new_pref_location: str = ""
@@ -55,6 +65,15 @@ class AppState(rx.State):
     @rx.var
     def cover_letter_count(self) -> int:
         return len(self.uploaded_cover_letters)
+
+    @rx.var
+    def selected_files(self) -> list[dict[str, str]]:
+        files: list[dict[str, str]] = []
+        if self.uploaded_cv:
+            files.append({"kind": "CV", "name": self.uploaded_cv.get("name", "")})
+        for item in self.uploaded_cover_letters:
+            files.append({"kind": "Cover Letter", "name": item.get("name", "")})
+        return files
 
     @rx.var
     def has_profile(self) -> bool:
@@ -77,6 +96,18 @@ class AppState(rx.State):
         return len(self.extraction_warnings) > 0
 
     @rx.var
+    def is_upload_step(self) -> bool:
+        return self.step == "upload"
+
+    @rx.var
+    def is_processing_step(self) -> bool:
+        return self.step == "processing"
+
+    @rx.var
+    def is_profile_step(self) -> bool:
+        return self.step == "profile"
+
+    @rx.var
     def summary(self) -> str:
         return str(self.profile.get("summary", ""))
 
@@ -85,11 +116,11 @@ class AppState(rx.State):
         return list(self.profile.get("skills", []))
 
     @rx.var
-    def projects(self) -> list[str]:
+    def projects(self) -> list[dict[str, str]]:
         return list(self.profile.get("projects", []))
 
     @rx.var
-    def experience(self) -> list[str]:
+    def experience(self) -> list[dict[str, str]]:
         return list(self.profile.get("experience", []))
 
     @rx.var
@@ -143,166 +174,148 @@ class AppState(rx.State):
         validated = ApplicantProfile.model_validate(profile)
         self.profile = validated.model_dump()
 
-    def _navigate_to_profile(self) -> None:
-        return rx.redirect("/profile")
+    def _reset_parsed_artifacts(self) -> None:
+        self.combined_text = ""
+        self.extraction_warnings = []
 
-    def parse_and_generate_then_redirect(self) -> None:
-        self.parse_and_generate_profile()
-        return rx.redirect("/loading")
+    def _reset_draft_inputs(self) -> None:
+        self.new_skill = ""
+        self.new_project_name = ""
+        self.new_project_description = ""
+        self.new_experience_role = ""
+        self.new_experience_company = ""
+        self.new_experience_duration = ""
+        self.new_experience_description = ""
+        self.new_language_name = ""
+        self.new_language_level = ""
+        self.new_pref_location = ""
+        self.new_pref_work_type = ""
+        self.new_pref_mode = ""
+        self.new_pref_industry = ""
+        self.new_pref_company_size = ""
 
     def check_saved_profile_exists(self) -> None:
         output_path = Path("output") / "applicant_profile.json"
         self.has_saved_profile = saved_profile_exists(str(output_path))
 
-    def _reset_parsed_artifacts(self) -> None:
-        self.combined_text = ""
-        self.extraction_warnings = []
+    def reset_app(self) -> None:
+        self.session_id = uuid.uuid4().hex
+        self.step = "upload"
+        self.uploaded_cv = {}
+        self.uploaded_cover_letters = []
+        self._reset_parsed_artifacts()
+        self._clear_messages()
+        self._reset_draft_inputs()
+        self.is_processing = False
+        self.is_saving = False
+        self.profile = ApplicantProfile().model_dump()
 
-    async def handle_cv_upload(self, files: list[rx.UploadFile]) -> None:
-        self._debug("handle_cv_upload called")
+    async def handle_document_uploads(self, files: list[rx.UploadFile]) -> None:
+        self._debug("handle_document_uploads called")
         try:
             self._clear_messages()
             self._reset_parsed_artifacts()
 
-            incoming_count = len(files) if files else 0
-            self._debug(f"Incoming CV files count: {incoming_count}")
-
             if not files:
-                self.error_message = "No CV file selected."
-                self._debug("No CV selected by user")
+                self.error_message = "No files selected."
                 return
 
-            if len(files) > 1:
-                warning = "Multiple CV files selected. Keeping the first file only."
-                self.extraction_warnings.append(warning)
-                self._debug(warning)
-
-            upload = files[0]
-            filename = upload.filename or "uploaded_cv.txt"
-            self._debug(f"Processing CV upload: {filename}")
-            if not is_supported_extension(filename):
-                self.error_message = f"Unsupported CV file: {filename}. Allowed formats: .pdf, .docx, .txt"
-                self._debug(self.error_message)
+            valid_uploads = [f for f in files if is_supported_extension(f.filename or "")]
+            if not valid_uploads:
+                self.error_message = "No supported files uploaded. Allowed formats: .pdf, .docx, .txt"
                 return
 
-            data = await upload.read()
-            self._debug(f"Read CV bytes for {filename}: {len(data)}")
-            path = save_upload_bytes(file_bytes=data, filename=filename, session_id=self.session_id)
-            self.uploaded_cv = {"name": filename, "path": str(path)}
-            self.success_message = f"CV uploaded: {filename}."
-            self._debug(self.success_message)
-        except Exception as exc:
-            self.error_message = f"CV upload failed: {exc}"
-            self._debug(f"CV upload exception: {exc}")
-            self._debug(traceback.format_exc())
+            if len(valid_uploads) > MAX_TOTAL_UPLOADS:
+                valid_uploads = valid_uploads[:MAX_TOTAL_UPLOADS]
+                self.extraction_warnings.append(
+                    f"Only the first {MAX_TOTAL_UPLOADS} supported files were kept (1 CV + {MAX_COVER_LETTERS} cover letters)."
+                )
 
-    async def handle_cover_letter_uploads(self, files: list[rx.UploadFile]) -> None:
-        self._debug("handle_cover_letter_uploads called")
-        try:
-            self._clear_messages()
-            self._reset_parsed_artifacts()
+            if len(valid_uploads) < len(files):
+                self.extraction_warnings.append("Some unsupported files were skipped.")
 
-            incoming_count = len(files) if files else 0
-            self._debug(f"Incoming cover-letter files count: {incoming_count}")
-            if not files:
-                self.error_message = "No cover-letter files selected."
-                self._debug("No cover letters selected by user")
-                return
+            stored_cv: dict[str, str] = {}
+            stored_letters: list[dict[str, str]] = []
 
-            if len(files) > MAX_COVER_LETTERS:
-                self.error_message = f"Select up to {MAX_COVER_LETTERS} cover letters."
-                self._debug(self.error_message)
-                return
-
-            stored: list[dict[str, str]] = []
-            for upload in files:
-                filename = upload.filename or "cover_letter.txt"
-                self._debug(f"Processing cover letter upload: {filename}")
-                if not is_supported_extension(filename):
-                    warning = f"Skipped unsupported cover letter: {filename}"
-                    self.extraction_warnings.append(warning)
-                    self._debug(warning)
-                    continue
-
+            for idx, upload in enumerate(valid_uploads):
+                filename = upload.filename or ("uploaded_cv.txt" if idx == 0 else "cover_letter.txt")
                 data = await upload.read()
-                self._debug(f"Read cover letter bytes for {filename}: {len(data)}")
                 path = save_upload_bytes(file_bytes=data, filename=filename, session_id=self.session_id)
-                stored.append({"name": filename, "path": str(path)})
 
-            self.uploaded_cover_letters = stored
-            if not self.uploaded_cover_letters:
-                self.error_message = "No supported cover letters uploaded. Allowed formats: .pdf, .docx, .txt"
-                self._debug(self.error_message)
+                if idx == 0:
+                    stored_cv = {"name": filename, "path": str(path)}
+                else:
+                    stored_letters.append({"name": filename, "path": str(path)})
+
+            if not stored_cv:
+                self.error_message = "Upload at least one valid CV file."
                 return
 
-            self.success_message = f"Stored {len(self.uploaded_cover_letters)} cover letter(s)."
-            self._debug(self.success_message)
+            self.uploaded_cv = stored_cv
+            self.uploaded_cover_letters = stored_letters
+            self.success_message = (
+                f"Stored {1 + len(stored_letters)} file(s): 1 CV and {len(stored_letters)} cover letter(s)."
+            )
         except Exception as exc:
-            self.error_message = f"Cover-letter upload failed: {exc}"
-            self._debug(f"Cover-letter upload exception: {exc}")
+            self.error_message = f"File upload failed: {exc}"
+            self._debug(f"File upload exception: {exc}")
             self._debug(traceback.format_exc())
-
-    def parse_uploaded_documents(self) -> None:
-        """Deprecated: use parse_and_generate_profile instead."""
-        pass
 
     def parse_and_generate_profile(self) -> None:
         self._debug("parse_and_generate_profile called")
+        if self.is_processing:
+            return
+
         self._clear_messages()
         self.is_processing = True
+        self.step = "processing"
         self.extraction_warnings = []
 
         try:
             if not self.uploaded_cv:
                 self.error_message = "Upload a CV before processing."
-                self._debug("Processing aborted: no uploaded_cv in state")
+                self.step = "upload"
                 return
 
             cv_name = self.uploaded_cv["name"]
             cv_path = self.uploaded_cv["path"]
-            self._debug(f"Extracting CV text from {cv_name} at {cv_path}")
             try:
                 cv_text = extract_text_from_file(cv_path)
             except TextExtractionError as exc:
                 self.error_message = f"CV extraction failed: {cv_name}: {exc}"
-                self._debug(self.error_message)
+                self.step = "upload"
                 return
 
             cover_letters: list[str] = []
             for file_info in self.uploaded_cover_letters[:MAX_COVER_LETTERS]:
                 file_name = file_info["name"]
                 file_path = file_info["path"]
-                self._debug(f"Extracting cover letter text from {file_name} at {file_path}")
                 try:
                     text = extract_text_from_file(file_path)
-                    self._debug(f"Extracted cover-letter chars from {file_name}: {len(text)}")
                     cover_letters.append(text)
                 except TextExtractionError as exc:
                     warning = f"Cover letter extraction failed for {file_name}: {exc}"
                     self.extraction_warnings.append(warning)
-                    self._debug(f"Extraction warning: {warning}")
 
-            self._debug(f"CV chars: {len(cv_text)} | cover letters: {len(cover_letters)}")
             self.combined_text = aggregate_profile_input(cv_text=cv_text, cover_letters=cover_letters)
-            self._debug(f"Combined text chars: {len(self.combined_text)}")
 
             if not self.combined_text.strip():
                 self.error_message = "Unable to extract meaningful text from uploaded documents."
-                self._debug(self.error_message)
+                self.step = "upload"
                 return
 
-            self._debug(f"Starting profile generation with {len(self.combined_text)} chars")
             generated = generate_profile_json_once(self.combined_text)
             self.profile = generated.model_dump()
-            self.success_message = "Profile generated successfully! Redirecting to profile page..."
-            self._debug(self.success_message)
-            rx.redirect("/profile")
+            self.success_message = "Profile generated successfully."
+            self.step = "profile"
 
         except ProfileGenerationError as exc:
             self.error_message = str(exc)
+            self.step = "upload"
             self._debug(f"Profile generation error: {exc}")
         except Exception as exc:
             self.error_message = f"Unexpected processing failure: {exc}"
+            self.step = "upload"
             self._debug(f"Unexpected processing exception: {exc}")
             self._debug(traceback.format_exc())
         finally:
@@ -319,17 +332,14 @@ class AppState(rx.State):
             save_profile(profile=profile_model, path=str(output_path))
             self.has_saved_profile = True
             self.success_message = f"Saved profile to {output_path}."
-            self._debug(self.success_message)
         except ValidationError as exc:
             self.error_message = f"Profile is invalid and cannot be saved: {exc}"
-            self._debug(f"Save validation error: {exc}")
         except Exception as exc:
             self.error_message = f"Failed to save profile: {exc}"
             self._debug(f"Save exception: {exc}")
             self._debug(traceback.format_exc())
         finally:
             self.is_saving = False
-            self._debug("save_profile_json finished")
 
     def load_saved_profile_json(self) -> None:
         self._debug("load_saved_profile_json called")
@@ -339,18 +349,24 @@ class AppState(rx.State):
             if not saved_profile_exists(str(output_path)):
                 self.has_saved_profile = False
                 self.error_message = "No saved profile found at output/applicant_profile.json"
-                self._debug(self.error_message)
                 return
 
             loaded = load_profile(str(output_path))
             self.profile = loaded.model_dump()
             self.has_saved_profile = True
+            self.step = "profile"
             self.success_message = "Loaded saved profile from output/applicant_profile.json (AI generation skipped)."
-            self._debug(self.success_message)
         except Exception as exc:
             self.error_message = f"Failed to load saved profile JSON: {exc}"
             self._debug(self.error_message)
             self._debug(traceback.format_exc())
+
+    def go_to_upload(self) -> None:
+        self.step = "upload"
+
+    def parse_uploaded_documents(self) -> None:
+        """Deprecated no-op retained for compatibility with existing tests."""
+        return None
 
     def update_summary(self, value: str) -> None:
         self.profile["summary"] = value
@@ -358,32 +374,9 @@ class AppState(rx.State):
     def set_new_skill(self, value: str) -> None:
         self.new_skill = value
 
-    def set_new_project(self, value: str) -> None:
-        self.new_project = value
-
-    def set_new_experience(self, value: str) -> None:
-        self.new_experience = value
-
-    def set_new_language_name(self, value: str) -> None:
-        self.new_language_name = value
-
-    def set_new_language_level(self, value: str) -> None:
-        self.new_language_level = value
-
-    def set_new_pref_location(self, value: str) -> None:
-        self.new_pref_location = value
-
-    def set_new_pref_work_type(self, value: str) -> None:
-        self.new_pref_work_type = value
-
-    def set_new_pref_mode(self, value: str) -> None:
-        self.new_pref_mode = value
-
-    def set_new_pref_industry(self, value: str) -> None:
-        self.new_pref_industry = value
-
-    def set_new_pref_company_size(self, value: str) -> None:
-        self.new_pref_company_size = value
+    def add_skill_on_key(self, key: str, _: dict[str, bool]) -> None:
+        if key == "Enter":
+            self.add_skill()
 
     def update_skill(self, index: int, value: str) -> None:
         skills = list(self.profile.get("skills", []))
@@ -406,20 +399,39 @@ class AppState(rx.State):
             skills.pop(index)
             self.profile["skills"] = skills
 
-    def update_project(self, index: int, value: str) -> None:
+    def set_new_project_name(self, value: str) -> None:
+        self.new_project_name = value
+
+    def set_new_project_description(self, value: str) -> None:
+        self.new_project_description = value
+
+    def add_empty_project(self) -> None:
         projects = list(self.profile.get("projects", []))
-        if 0 <= index < len(projects):
-            projects[index] = value
-            self.profile["projects"] = projects
+        projects.insert(0, {"name": "", "description": ""})
+        self.profile["projects"] = projects
 
     def add_project(self) -> None:
-        value = self.new_project.strip()
-        if not value:
+        name = self.new_project_name.strip()
+        description = self.new_project_description.strip()
+        if not name and not description:
             return
         projects = list(self.profile.get("projects", []))
-        projects.append(value)
+        projects.append({"name": name, "description": description})
         self.profile["projects"] = projects
-        self.new_project = ""
+        self.new_project_name = ""
+        self.new_project_description = ""
+
+    def update_project_name(self, index: int, value: str) -> None:
+        projects = list(self.profile.get("projects", []))
+        if 0 <= index < len(projects):
+            projects[index]["name"] = value
+            self.profile["projects"] = projects
+
+    def update_project_description(self, index: int, value: str) -> None:
+        projects = list(self.profile.get("projects", []))
+        if 0 <= index < len(projects):
+            projects[index]["description"] = value
+            self.profile["projects"] = projects
 
     def remove_project(self, index: int) -> None:
         projects = list(self.profile.get("projects", []))
@@ -427,26 +439,80 @@ class AppState(rx.State):
             projects.pop(index)
             self.profile["projects"] = projects
 
-    def update_experience(self, index: int, value: str) -> None:
+    def set_new_experience_role(self, value: str) -> None:
+        self.new_experience_role = value
+
+    def set_new_experience_company(self, value: str) -> None:
+        self.new_experience_company = value
+
+    def set_new_experience_duration(self, value: str) -> None:
+        self.new_experience_duration = value
+
+    def set_new_experience_description(self, value: str) -> None:
+        self.new_experience_description = value
+
+    def add_empty_experience(self) -> None:
         experience = list(self.profile.get("experience", []))
-        if 0 <= index < len(experience):
-            experience[index] = value
-            self.profile["experience"] = experience
+        experience.insert(0, {"role": "", "company": "", "duration": "", "description": ""})
+        self.profile["experience"] = experience
 
     def add_experience(self) -> None:
-        value = self.new_experience.strip()
-        if not value:
+        role = self.new_experience_role.strip()
+        company = self.new_experience_company.strip()
+        duration = self.new_experience_duration.strip()
+        description = self.new_experience_description.strip()
+        if not role and not company and not duration and not description:
             return
         experience = list(self.profile.get("experience", []))
-        experience.append(value)
+        experience.append(
+            {
+                "role": role,
+                "company": company,
+                "duration": duration,
+                "description": description,
+            }
+        )
         self.profile["experience"] = experience
-        self.new_experience = ""
+        self.new_experience_role = ""
+        self.new_experience_company = ""
+        self.new_experience_duration = ""
+        self.new_experience_description = ""
+
+    def update_experience_role(self, index: int, value: str) -> None:
+        experience = list(self.profile.get("experience", []))
+        if 0 <= index < len(experience):
+            experience[index]["role"] = value
+            self.profile["experience"] = experience
+
+    def update_experience_company(self, index: int, value: str) -> None:
+        experience = list(self.profile.get("experience", []))
+        if 0 <= index < len(experience):
+            experience[index]["company"] = value
+            self.profile["experience"] = experience
+
+    def update_experience_duration(self, index: int, value: str) -> None:
+        experience = list(self.profile.get("experience", []))
+        if 0 <= index < len(experience):
+            experience[index]["duration"] = value
+            self.profile["experience"] = experience
+
+    def update_experience_description(self, index: int, value: str) -> None:
+        experience = list(self.profile.get("experience", []))
+        if 0 <= index < len(experience):
+            experience[index]["description"] = value
+            self.profile["experience"] = experience
 
     def remove_experience(self, index: int) -> None:
         experience = list(self.profile.get("experience", []))
         if 0 <= index < len(experience):
             experience.pop(index)
             self.profile["experience"] = experience
+
+    def set_new_language_name(self, value: str) -> None:
+        self.new_language_name = value
+
+    def set_new_language_level(self, value: str) -> None:
+        self.new_language_level = value
 
     def update_language_name(self, index: int, value: str) -> None:
         languages = list(self.profile.get("languages", []))
@@ -487,6 +553,10 @@ class AppState(rx.State):
         preferences[key] = values
         self.profile["preferences"] = preferences
 
+    def _add_preference_item_on_key(self, key: str, value: str, event_key: str) -> None:
+        if event_key == "Enter":
+            self._add_preference_item(key, value)
+
     def _remove_preference_item(self, key: str, index: int) -> None:
         preferences = dict(self.profile.get("preferences", {}))
         values = list(preferences.get(key, []))
@@ -502,6 +572,41 @@ class AppState(rx.State):
             values[index] = value
             preferences[key] = values
             self.profile["preferences"] = preferences
+
+    def set_new_pref_location(self, value: str) -> None:
+        self.new_pref_location = value
+
+    def set_new_pref_work_type(self, value: str) -> None:
+        self.new_pref_work_type = value
+
+    def set_new_pref_mode(self, value: str) -> None:
+        self.new_pref_mode = value
+
+    def set_new_pref_industry(self, value: str) -> None:
+        self.new_pref_industry = value
+
+    def set_new_pref_company_size(self, value: str) -> None:
+        self.new_pref_company_size = value
+
+    def add_pref_location_on_key(self, key: str, _: dict[str, bool]) -> None:
+        if key == "Enter":
+            self.add_pref_location()
+
+    def add_pref_work_type_on_key(self, key: str, _: dict[str, bool]) -> None:
+        if key == "Enter":
+            self.add_pref_work_type()
+
+    def add_pref_mode_on_key(self, key: str, _: dict[str, bool]) -> None:
+        if key == "Enter":
+            self.add_pref_mode()
+
+    def add_pref_industry_on_key(self, key: str, _: dict[str, bool]) -> None:
+        if key == "Enter":
+            self.add_pref_industry()
+
+    def add_pref_company_size_on_key(self, key: str, _: dict[str, bool]) -> None:
+        if key == "Enter":
+            self.add_pref_company_size()
 
     def update_pref_location(self, index: int, value: str) -> None:
         self._update_preference_item("locations", index, value)
