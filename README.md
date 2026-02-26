@@ -1,4 +1,4 @@
-# Applicant Profile Builder
+# Verde - AI Powered Job Applications
 
 Reflex app for turning a CV + cover letters into an editable applicant profile, then running a job-fit helper analysis.
 
