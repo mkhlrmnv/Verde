@@ -412,7 +412,16 @@ def profile_editor() -> rx.Component:
                 spacing="1",
                 align_items="start",
             ),
-            rx.button("Export JSON", on_click=AppState.save_profile_json, loading=AppState.is_saving),
+            rx.hstack(
+                rx.button(
+                    "Move Forward",
+                    on_click=AppState.move_to_job_listing_input,
+                    disabled=AppState.has_meaningful_profile == False,
+                ),
+                rx.button("Export JSON", on_click=AppState.save_profile_json, loading=AppState.is_saving),
+                spacing="2",
+                wrap="wrap",
+            ),
             justify="between",
             align="center",
             width="100%",

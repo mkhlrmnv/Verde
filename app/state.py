@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime
 import traceback
 from typing import Any, Literal
 import uuid
@@ -10,8 +11,13 @@ from pydantic import ValidationError
 from reflex.utils.misc import run_in_thread
 
 from app.models.clarification import ClarificationAnswerSet, GapQuestionData
+from app.models.cover_helper import CoverHelperAnalysis
 from app.models.profile import ApplicantProfile
 from app.services.aggregate_input import aggregate_profile_input
+from app.services.cover_letter_helper import (
+    CoverHelperGenerationError,
+    generate_cover_helper_analysis_once,
+)
 from app.services.file_storage import is_supported_extension, save_upload_bytes
 from app.services.gap_detector import detect_profile_gaps
 from app.services.google_profile_builder import ProfileGenerationError, generate_profile_json_once
@@ -22,7 +28,7 @@ from app.services.text_extract import TextExtractionError, extract_text_from_fil
 
 MAX_COVER_LETTERS = 10
 MAX_TOTAL_UPLOADS = MAX_COVER_LETTERS + 1
-Step = Literal["upload", "processing", "clarification", "profile"]
+Step = Literal["upload", "processing", "clarification", "profile", "job_input", "cover_helper_results"]
 
 
 class AppState(rx.State):
@@ -46,6 +52,16 @@ class AppState(rx.State):
     profile: dict[str, Any] = ApplicantProfile().model_dump()
     gap_questions: list[GapQuestionData] = []
     clarification_answers: dict[str, list[str]] = {}
+
+    job_listing_text: str = ""
+    is_generating_cover_helper: bool = False
+    cover_helper_error: str = ""
+    cover_helper_result: dict[str, list[dict[str, str]]] = {
+        "strengths": [],
+        "weaknesses_gaps": [],
+        "cover_letter_strategy": [],
+    }
+    cover_helper_generated_at: str = ""
 
     new_skill: str = ""
     new_project_name: str = ""
@@ -118,6 +134,25 @@ class AppState(rx.State):
     @rx.var
     def is_clarification_step(self) -> bool:
         return self.step == "clarification"
+
+    @rx.var
+    def is_job_input_step(self) -> bool:
+        return self.step == "job_input"
+
+    @rx.var
+    def is_cover_helper_results_step(self) -> bool:
+        return self.step == "cover_helper_results"
+
+    @rx.var
+    def has_job_listing_text(self) -> bool:
+        return bool(self.job_listing_text.strip())
+
+    @rx.var
+    def has_cover_helper_result(self) -> bool:
+        strengths = self.cover_helper_result.get("strengths", [])
+        weaknesses = self.cover_helper_result.get("weaknesses_gaps", [])
+        strategy = self.cover_helper_result.get("cover_letter_strategy", [])
+        return any([len(strengths) > 0, len(weaknesses) > 0, len(strategy) > 0])
 
     @rx.var
     def has_gap_questions(self) -> bool:
@@ -216,6 +251,20 @@ class AppState(rx.State):
         self.gap_questions = []
         self.clarification_answers = {}
 
+    def _reset_cover_helper_result_state(self) -> None:
+        self.is_generating_cover_helper = False
+        self.cover_helper_error = ""
+        self.cover_helper_generated_at = ""
+        self.cover_helper_result = {
+            "strengths": [],
+            "weaknesses_gaps": [],
+            "cover_letter_strategy": [],
+        }
+
+    def clear_cover_helper_state(self) -> None:
+        self.job_listing_text = ""
+        self._reset_cover_helper_result_state()
+
     def check_saved_profile_exists(self) -> None:
         output_path = Path("output") / "applicant_profile.json"
         self.has_saved_profile = saved_profile_exists(str(output_path))
@@ -231,7 +280,88 @@ class AppState(rx.State):
         self.is_processing = False
         self.is_saving = False
         self._reset_refinement_state()
+        self.clear_cover_helper_state()
         self.profile = ApplicantProfile().model_dump()
+
+    def set_job_listing_text(self, value: str) -> None:
+        self.job_listing_text = value
+
+    def move_to_job_listing_input(self) -> None:
+        self._clear_messages()
+        if not self.has_meaningful_profile:
+            self.error_message = "Generate or complete your profile before analyzing against a job listing."
+            self.step = "profile"
+            return
+
+        self._reset_cover_helper_result_state()
+        self.step = "job_input"
+
+    def back_to_profile_from_job_input(self) -> None:
+        self._clear_messages()
+        self.step = "profile"
+
+    def back_to_job_input(self) -> None:
+        self._clear_messages()
+        self.step = "job_input"
+
+    @rx.event(background=True)
+    async def generate_cover_helper_analysis(self) -> None:
+        async with self:
+            if self.is_generating_cover_helper:
+                return
+
+            self._clear_messages()
+            self.cover_helper_error = ""
+
+            if not self.job_listing_text.strip():
+                self.cover_helper_error = "Paste a job listing before running analysis."
+                self.step = "job_input"
+                return
+
+            try:
+                profile_model = ApplicantProfile.model_validate(self.profile)
+            except ValidationError as exc:
+                self.cover_helper_error = f"Profile is invalid and cannot be analyzed: {exc}"
+                self.step = "profile"
+                return
+
+            listing = self.job_listing_text
+            self.is_generating_cover_helper = True
+
+        try:
+            analysis = await run_in_thread(
+                lambda: generate_cover_helper_analysis_once(profile=profile_model, job_listing=listing)
+            )
+
+            normalized = CoverHelperAnalysis.model_validate(analysis.model_dump())
+
+            async with self:
+                self.cover_helper_result = {
+                    "strengths": [item.model_dump() for item in normalized.strengths],
+                    "weaknesses_gaps": [item.model_dump() for item in normalized.weaknesses_gaps],
+                    "cover_letter_strategy": [item.model_dump() for item in normalized.cover_letter_strategy],
+                }
+                self.cover_helper_generated_at = datetime.now().isoformat(timespec="seconds")
+                self.cover_helper_error = ""
+                self.step = "cover_helper_results"
+                self.is_generating_cover_helper = False
+        except CoverHelperGenerationError as exc:
+            async with self:
+                self.cover_helper_error = str(exc)
+                self.step = "job_input"
+                self.is_generating_cover_helper = False
+        except ValidationError as exc:
+            async with self:
+                self.cover_helper_error = f"Invalid analysis response: {exc}"
+                self.step = "job_input"
+                self.is_generating_cover_helper = False
+        except Exception as exc:
+            async with self:
+                self.cover_helper_error = f"Failed to generate cover helper analysis: {exc}"
+                self.step = "job_input"
+                self.is_generating_cover_helper = False
+            self._debug(f"Cover helper generation exception: {exc}")
+            self._debug(traceback.format_exc())
 
     async def handle_document_uploads(self, files: list[rx.UploadFile]) -> None:
         self._debug("handle_document_uploads called")

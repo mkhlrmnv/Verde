@@ -24,7 +24,10 @@ def top_nav() -> rx.Component:
                 align="center",
             ),
             rx.cond(
-                AppState.is_profile_step | AppState.is_clarification_step,
+                AppState.is_profile_step
+                | AppState.is_clarification_step
+                | AppState.is_job_input_step
+                | AppState.is_cover_helper_results_step,
                 rx.button(
                     "Start Over",
                     variant="ghost",

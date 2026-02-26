@@ -7,7 +7,7 @@ Uses the `google-genai` SDK (`google.genai`) for Gemini API calls.
 ## Features
 
 - Single-page step flow:
-   - `upload` → `processing` → `clarification` (when needed) → `profile`
+  - `upload` → `processing` → `clarification` (when needed) → `profile` → `job_input` → `cover_helper_results`
 - Sticky brand header with conditional `Start Over`
 - Unified uploader with selected-file list
 - First valid file is treated as CV, remaining files as cover letters (max 10)
@@ -18,6 +18,8 @@ Uses the `google-genai` SDK (`google.genai`) for Gemini API calls.
 - Non-destructive profile refinement merge before final editor display
 - Load existing saved JSON to skip AI call when available
 - React-style profile editing cards (summary, experience, projects, skills chips, preferences chips, languages)
+- Cover Letter Helper analysis (strengths, weaknesses/gaps, strategy snippets) based on profile + pasted job listing
+- Guardrails to prevent full cover-letter generation in helper output
 - Atomic save to `output/applicant_profile.json`
 
 ## Setup
@@ -57,7 +59,9 @@ Profile schema keys:
 3. Wait in the processing step while extraction + generation runs.
 4. If the profile is missing preference fields, answer targeted clarification questions (`/clarification` also supported).
 5. Review/edit the refined profile in the profile step.
-6. Click `Export JSON` to save updates.
+6. Click `Move Forward` and paste a target job listing.
+7. Run `Analyze Fit & Strategy` to get structured strengths/gaps/snippets.
+8. Click `Export JSON` to save profile updates.
 
 ## Notes
 
@@ -66,3 +70,4 @@ Profile schema keys:
 - Uploading files resets parsed artifacts and invalidates previous combined text.
 - Legacy `output/applicant_profile.json` files with `projects`/`experience` as string arrays are auto-migrated on load.
 - Clarification merge is non-destructive and idempotent for repeated submissions of the same answers.
+- Cover Letter Helper is analysis-only by design and rejects letter-like output patterns (e.g., salutations/sign-offs or long narrative snippets).
