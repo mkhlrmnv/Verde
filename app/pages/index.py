@@ -3,6 +3,7 @@ from __future__ import annotations
 import reflex as rx
 
 from app.components.top_nav import top_nav
+from app.pages.clarification import clarification_content
 from app.components.upload_panel import upload_panel
 from app.pages.loading import processing_view
 from app.pages.profile import profile_content
@@ -29,7 +30,11 @@ def index() -> rx.Component:
                         rx.cond(
                             AppState.is_processing_step,
                             processing_view(),
-                            profile_content(),
+                            rx.cond(
+                                AppState.is_clarification_step,
+                                clarification_content(),
+                                profile_content(),
+                            ),
                         ),
                     ),
                     spacing="4",

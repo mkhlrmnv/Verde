@@ -2,8 +2,10 @@ from pathlib import Path
 
 import pytest
 
+from app.models.clarification import ClarificationAnswerSet
 from app.models.profile import ApplicantProfile
 from app.services.profile_store import load_profile, save_profile
+from app.services.profile_refiner import merge_clarifications_into_profile
 
 
 EXPECTED_KEYS = {"summary", "skills", "projects", "experience", "preferences", "languages"}
@@ -71,3 +73,18 @@ def test_load_profile_migrates_legacy_string_lists(tmp_path: Path) -> None:
         "duration": "",
         "description": "",
     }
+
+
+def test_refinement_preserves_exact_schema_keys() -> None:
+    profile = ApplicantProfile()
+    answers = ClarificationAnswerSet(
+        answers={
+            "preferences.work_types": ["full-time"],
+            "preferences.remote_hybrid_on_site": ["hybrid"],
+        }
+    )
+
+    refined = merge_clarifications_into_profile(profile, answers).model_dump()
+
+    assert set(refined.keys()) == EXPECTED_KEYS
+    assert set(refined["preferences"].keys()) == EXPECTED_PREFERENCE_KEYS

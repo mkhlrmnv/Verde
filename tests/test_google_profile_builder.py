@@ -104,3 +104,23 @@ def test_normalize_profile_payload_ignores_extra_keys() -> None:
         "preferences",
         "languages",
     }
+
+
+def test_normalize_profile_payload_normalizes_preference_duplicates() -> None:
+    normalized = normalize_profile_payload(
+        {
+            "summary": "ok",
+            "skills": [],
+            "projects": [],
+            "experience": [],
+            "preferences": {
+                "work_types": ["Full-time", "full-time", "part-time"],
+                "remote_hybrid_on_site": ["On-site", "onsite"],
+            },
+            "languages": [],
+        }
+    )
+
+    validated = ApplicantProfile.model_validate(normalized).model_dump()
+    assert validated["preferences"]["work_types"] == ["Full-time", "part-time"]
+    assert validated["preferences"]["remote_hybrid_on_site"] == ["On-site", "onsite"]

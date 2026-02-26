@@ -9,17 +9,20 @@ import reflex as rx
 from pydantic import ValidationError
 from reflex.utils.misc import run_in_thread
 
+from app.models.clarification import ClarificationAnswerSet, GapQuestionData
 from app.models.profile import ApplicantProfile
 from app.services.aggregate_input import aggregate_profile_input
 from app.services.file_storage import is_supported_extension, save_upload_bytes
+from app.services.gap_detector import detect_profile_gaps
 from app.services.google_profile_builder import ProfileGenerationError, generate_profile_json_once
+from app.services.profile_refiner import merge_clarifications_into_profile
 from app.services.profile_store import load_profile, save_profile, saved_profile_exists
 from app.services.text_extract import TextExtractionError, extract_text_from_file
 
 
 MAX_COVER_LETTERS = 10
 MAX_TOTAL_UPLOADS = MAX_COVER_LETTERS + 1
-Step = Literal["upload", "processing", "profile"]
+Step = Literal["upload", "processing", "clarification", "profile"]
 
 
 class AppState(rx.State):
@@ -36,9 +39,13 @@ class AppState(rx.State):
 
     is_processing: bool = False
     is_saving: bool = False
+    is_refining: bool = False
     has_saved_profile: bool = False
+    has_gaps: bool = False
 
     profile: dict[str, Any] = ApplicantProfile().model_dump()
+    gap_questions: list[GapQuestionData] = []
+    clarification_answers: dict[str, list[str]] = {}
 
     new_skill: str = ""
     new_project_name: str = ""
@@ -107,6 +114,14 @@ class AppState(rx.State):
     @rx.var
     def is_profile_step(self) -> bool:
         return self.step == "profile"
+
+    @rx.var
+    def is_clarification_step(self) -> bool:
+        return self.step == "clarification"
+
+    @rx.var
+    def has_gap_questions(self) -> bool:
+        return len(self.gap_questions) > 0
 
     @rx.var
     def summary(self) -> str:
@@ -195,6 +210,12 @@ class AppState(rx.State):
         self.new_pref_industry = ""
         self.new_pref_company_size = ""
 
+    def _reset_refinement_state(self) -> None:
+        self.is_refining = False
+        self.has_gaps = False
+        self.gap_questions = []
+        self.clarification_answers = {}
+
     def check_saved_profile_exists(self) -> None:
         output_path = Path("output") / "applicant_profile.json"
         self.has_saved_profile = saved_profile_exists(str(output_path))
@@ -209,6 +230,7 @@ class AppState(rx.State):
         self._reset_draft_inputs()
         self.is_processing = False
         self.is_saving = False
+        self._reset_refinement_state()
         self.profile = ApplicantProfile().model_dump()
 
     async def handle_document_uploads(self, files: list[rx.UploadFile]) -> None:
@@ -317,13 +339,32 @@ class AppState(rx.State):
                 return
 
             generated = await run_in_thread(lambda: generate_profile_json_once(combined_text))
+            gap_detection = await run_in_thread(lambda: detect_profile_gaps(generated, combined_text))
+            clarification_answers = {question.field_key: [] for question in gap_detection.questions}
 
             async with self:
                 self.combined_text = combined_text
                 self.extraction_warnings = warnings
                 self.profile = generated.model_dump()
-                self.success_message = "Profile generated successfully."
-                self.step = "profile"
+                self.has_gaps = gap_detection.has_gaps
+                self.gap_questions = [
+                    {
+                        "field_key": question.field_key,
+                        "label": question.label,
+                        "prompt": question.prompt,
+                        "input_type": question.input_type,
+                        "required": question.required,
+                        "options": list(question.options),
+                    }
+                    for question in gap_detection.questions
+                ]
+                self.clarification_answers = clarification_answers
+                self.success_message = (
+                    "Profile generated. Please answer a few clarification questions."
+                    if gap_detection.has_gaps
+                    else "Profile generated successfully."
+                )
+                self.step = "clarification" if gap_detection.has_gaps else "profile"
                 self.is_processing = False
 
         except ProfileGenerationError as exc:
@@ -374,6 +415,7 @@ class AppState(rx.State):
             loaded = load_profile(str(output_path))
             self.profile = loaded.model_dump()
             self.has_saved_profile = True
+            self._reset_refinement_state()
             self.step = "profile"
             self.success_message = "Loaded saved profile from output/applicant_profile.json (AI generation skipped)."
         except Exception as exc:
@@ -383,6 +425,86 @@ class AppState(rx.State):
 
     def go_to_upload(self) -> None:
         self.step = "upload"
+
+    def _normalize_clarification_values(self, value: str) -> list[str]:
+        split_values = value.replace("\n", ",").split(",")
+        items: list[str] = []
+        seen: set[str] = set()
+        for item in split_values:
+            cleaned = item.strip()
+            if not cleaned:
+                continue
+            key = cleaned.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(cleaned)
+        return items
+
+    def set_clarification_text_answer(self, field_key: str, value: str) -> None:
+        updated = dict(self.clarification_answers)
+        updated[field_key] = self._normalize_clarification_values(value)
+        self.clarification_answers = updated
+
+    def toggle_clarification_option(self, field_key: str, option: str) -> None:
+        updated = dict(self.clarification_answers)
+        selected = list(updated.get(field_key, []))
+        option_key = option.casefold()
+
+        existing_keys = [item.casefold() for item in selected]
+        if option_key in existing_keys:
+            selected = [item for item in selected if item.casefold() != option_key]
+        else:
+            selected.append(option)
+
+        updated[field_key] = selected
+        self.clarification_answers = updated
+
+    def is_clarification_option_selected(self, field_key: str, option: str) -> bool:
+        selected = self.clarification_answers.get(field_key, [])
+        selected_keys = {item.casefold() for item in selected}
+        return option.casefold() in selected_keys
+
+    def clarification_answer_text(self, field_key: str) -> str:
+        values = self.clarification_answers.get(field_key, [])
+        return ", ".join(values)
+
+    def skip_clarifications(self) -> None:
+        self._clear_messages()
+        self._reset_refinement_state()
+        self.step = "profile"
+        self.success_message = "Clarification skipped. You can continue editing the profile."
+
+    def submit_clarifications_and_refine(self) -> None:
+        self._clear_messages()
+
+        required_missing = [
+            question["label"]
+            for question in self.gap_questions
+            if question.get("required", False) and len(self.clarification_answers.get(question["field_key"], [])) == 0
+        ]
+        if required_missing:
+            self.error_message = f"Please answer required questions: {', '.join(required_missing)}"
+            return
+
+        self.is_refining = True
+        try:
+            profile_model = ApplicantProfile.model_validate(self.profile)
+            answer_model = ClarificationAnswerSet.model_validate({"answers": self.clarification_answers})
+            refined_profile = merge_clarifications_into_profile(profile_model, answer_model)
+
+            self.profile = refined_profile.model_dump()
+            self._reset_refinement_state()
+            self.step = "profile"
+            self.success_message = "Profile refined successfully with your clarifications."
+        except ValidationError as exc:
+            self.error_message = f"Refinement failed due to invalid profile data: {exc}"
+        except Exception as exc:
+            self.error_message = f"Failed to refine profile: {exc}"
+            self._debug(f"Refinement exception: {exc}")
+            self._debug(traceback.format_exc())
+        finally:
+            self.is_refining = False
 
     def parse_uploaded_documents(self) -> None:
         """Deprecated no-op retained for compatibility with existing tests."""
