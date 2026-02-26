@@ -7,7 +7,7 @@ from app.pages.cover_helper_results import cover_helper_results_content
 from app.pages.clarification import clarification_content
 from app.pages.job_input import job_input_content
 from app.components.upload_panel import upload_panel
-from app.pages.loading import processing_view
+from app.pages.loading import cover_helper_processing_view, processing_view
 from app.pages.profile import profile_content
 from app.state import AppState
 
@@ -39,9 +39,13 @@ def index() -> rx.Component:
                                     AppState.is_job_input_step,
                                     job_input_content(),
                                     rx.cond(
-                                        AppState.is_cover_helper_results_step,
-                                        cover_helper_results_content(),
-                                        profile_content(),
+                                        AppState.is_cover_helper_processing_step,
+                                        cover_helper_processing_view(),
+                                        rx.cond(
+                                            AppState.is_cover_helper_results_step,
+                                            cover_helper_results_content(),
+                                            profile_content(),
+                                        ),
                                     ),
                                 ),
                             ),

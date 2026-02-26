@@ -123,9 +123,76 @@ def _safe_parse_analysis(raw_text: str) -> CoverHelperAnalysis:
         parsed = json.loads(extracted)
 
     try:
-        return CoverHelperAnalysis.model_validate(parsed)
+        normalized = _sanitize_analysis_payload(parsed)
+        return CoverHelperAnalysis.model_validate(normalized)
     except ValidationError as exc:
         raise CoverHelperGenerationError(f"Invalid helper JSON output: {exc}") from exc
+
+
+def _sanitize_analysis_payload(value: object) -> dict[str, object]:
+    data = value if isinstance(value, dict) else {}
+
+    strengths_raw = data.get("strengths", [])
+    weaknesses_raw = data.get("weaknesses_gaps", [])
+    strategy_raw = data.get("cover_letter_strategy", [])
+
+    strengths: list[dict[str, str]] = []
+    if isinstance(strengths_raw, list):
+        for item in strengths_raw:
+            if not isinstance(item, dict):
+                continue
+            strengths.append(
+                {
+                    "matched_skill": str(item.get("matched_skill", "") or "").strip(),
+                    "job_requirement": str(item.get("job_requirement", "") or "").strip(),
+                    "why_it_matches": str(item.get("why_it_matches", "") or "").strip(),
+                    "evidence_from_profile": str(item.get("evidence_from_profile", "") or "").strip(),
+                }
+            )
+
+    weaknesses_gaps: list[dict[str, str]] = []
+    if isinstance(weaknesses_raw, list):
+        for item in weaknesses_raw:
+            if not isinstance(item, dict):
+                continue
+
+            gap_impact = str(item.get("gap_impact", "") or "").strip()
+            if not gap_impact:
+                gap_impact = str(item.get("why_it_matches", "") or "").strip()
+
+            improvement_suggestion = str(item.get("improvement_suggestion", "") or "").strip()
+            if not improvement_suggestion:
+                improvement_suggestion = str(item.get("evidence_from_profile", "") or "").strip()
+
+            weaknesses_gaps.append(
+                {
+                    "missing_or_weak_skill": str(item.get("missing_or_weak_skill", "") or "").strip(),
+                    "job_requirement": str(item.get("job_requirement", "") or "").strip(),
+                    "gap_impact": gap_impact,
+                    "improvement_suggestion": improvement_suggestion,
+                }
+            )
+
+    cover_letter_strategy: list[dict[str, str]] = []
+    if isinstance(strategy_raw, list):
+        for item in strategy_raw:
+            if not isinstance(item, dict):
+                continue
+            cover_letter_strategy.append(
+                {
+                    "focus_skill": str(item.get("focus_skill", "") or "").strip(),
+                    "reason_to_highlight": str(item.get("reason_to_highlight", "") or "").strip(),
+                    "example_snippet": str(item.get("example_snippet", "") or "").strip(),
+                }
+            )
+
+    disclaimer = data.get("disclaimer", "")
+    return {
+        "strengths": strengths,
+        "weaknesses_gaps": weaknesses_gaps,
+        "cover_letter_strategy": cover_letter_strategy,
+        "disclaimer": str(disclaimer or "").strip(),
+    }
 
 
 def _is_letter_like_text(text: str) -> bool:

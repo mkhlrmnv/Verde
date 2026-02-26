@@ -28,7 +28,15 @@ from app.services.text_extract import TextExtractionError, extract_text_from_fil
 
 MAX_COVER_LETTERS = 10
 MAX_TOTAL_UPLOADS = MAX_COVER_LETTERS + 1
-Step = Literal["upload", "processing", "clarification", "profile", "job_input", "cover_helper_results"]
+Step = Literal[
+    "upload",
+    "processing",
+    "clarification",
+    "profile",
+    "job_input",
+    "cover_helper_processing",
+    "cover_helper_results",
+]
 
 
 class AppState(rx.State):
@@ -142,6 +150,10 @@ class AppState(rx.State):
     @rx.var
     def is_cover_helper_results_step(self) -> bool:
         return self.step == "cover_helper_results"
+
+    @rx.var
+    def is_cover_helper_processing_step(self) -> bool:
+        return self.step == "cover_helper_processing"
 
     @rx.var
     def has_job_listing_text(self) -> bool:
@@ -327,6 +339,7 @@ class AppState(rx.State):
 
             listing = self.job_listing_text
             self.is_generating_cover_helper = True
+            self.step = "cover_helper_processing"
 
         try:
             analysis = await run_in_thread(

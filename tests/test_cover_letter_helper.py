@@ -80,3 +80,27 @@ def test_enforce_output_guardrails_rejects_letter_style() -> None:
 
     with pytest.raises(CoverHelperGenerationError):
         _enforce_output_guardrails(analysis)
+
+
+def test_safe_parse_analysis_normalizes_misplaced_weakness_fields() -> None:
+    raw = """
+    {
+      "strengths": [],
+      "weaknesses_gaps": [
+        {
+          "missing_or_weak_skill": "Hydraulics",
+          "job_requirement": "Fluid power systems",
+          "why_it_matches": "Profile focuses more on electronics than fluid systems.",
+          "evidence_from_profile": "No direct hydraulic project listed.",
+          "unexpected_field": "ignore me"
+        }
+      ],
+      "cover_letter_strategy": []
+    }
+    """
+
+    result = _safe_parse_analysis(raw)
+
+    assert result.weaknesses_gaps[0].missing_or_weak_skill == "Hydraulics"
+    assert result.weaknesses_gaps[0].gap_impact == "Profile focuses more on electronics than fluid systems."
+    assert result.weaknesses_gaps[0].improvement_suggestion == "No direct hydraulic project listed."
