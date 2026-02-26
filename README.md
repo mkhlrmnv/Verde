@@ -1,73 +1,96 @@
 # Applicant Profile Builder
 
-A Reflex app that uploads a CV and cover letters, extracts text, generates a structured applicant profile with Google AI in one shot, lets you edit it in a React-style editor, and saves JSON to disk.
+Reflex app for turning a CV + cover letters into an editable applicant profile, then running a job-fit helper analysis.
 
-Uses the `google-genai` SDK (`google.genai`) for Gemini API calls.
+The app uses Google Gemini via `google-genai` and keeps all profile persistence local as JSON.
 
-## Features
+## Architecture
 
-- Single-page step flow:
-  - `upload` → `processing` → `clarification` (when needed) → `profile` → `job_input` → `cover_helper_results`
-- Sticky brand header with conditional `Start Over`
-- Unified uploader with selected-file list
-- First valid file is treated as CV, remaining files as cover letters (max 10)
-- Parse and aggregate CV + cover letters
-- One-shot profile generation with Google Gemini
-- Deterministic gap detection for missing preference fields
-- Dedicated clarification form for targeted missing inputs
-- Non-destructive profile refinement merge before final editor display
-- Load existing saved JSON to skip AI call when available
-- React-style profile editing cards (summary, experience, projects, skills chips, preferences chips, languages)
-- Cover Letter Helper analysis (strengths, weaknesses/gaps, strategy snippets) based on profile + pasted job listing
-- Guardrails to prevent full cover-letter generation in helper output
-- Atomic save to `output/applicant_profile.json`
+For a full architecture walkthrough, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## What it does
+
+- Upload documents (`.pdf`, `.docx`, `.txt`)
+- Treat first valid file as CV and remaining valid files as cover letters (up to 10)
+- Extract and aggregate text from all valid files
+- Generate a structured `ApplicantProfile` with one model call
+- Detect missing preference gaps and request targeted clarification answers
+- Merge clarification answers non-destructively into profile preferences
+- Let you edit summary, experience, projects, skills, preferences, and languages
+- Analyze profile fit against a pasted job listing (strengths, gaps, strategy snippets)
+- Save profile atomically to `output/applicant_profile.json`
+
+## Tech stack
+
+- Python `3.12+`
+- Reflex `0.8.x`
+- Pydantic `2.x`
+- Google GenAI SDK (`google-genai`)
+- `pypdf` and `python-docx` for document extraction
+- `pytest` for tests
 
 ## Setup
 
-1. Create environment and install dependencies:
-  - `python -m venv env`
-  - `source env/bin/activate`
-  - `pip install -e .[dev]`
-2. Create `.env` from `.env.example` and set:
-  - `GOOGLE_API_KEY`
-  - Optional: `MODEL_NAME` (default `gemini-1.5-flash`)
+1. Create and activate a virtual environment:
+   - `python3.12 -m venv env`
+   - `source env/bin/activate`
 
-## Run
+2. Install dependencies:
+   - `pip install -e .[dev]`
 
-- `reflex init`
+3. Create a `.env` file in the project root with:
+   - `GOOGLE_API_KEY=your_key_here`
+   - Optional: `MODEL_NAME=gemini-1.5-flash`
+   - Optional: `UPLOAD_BASE_DIR=/custom/upload/temp/dir`
+
+## Run locally
+
 - `reflex run`
 
-## Output
+Then open the local Reflex URL shown in terminal.
 
-Saved JSON path (MVP default):
+## App flow
 
-- `output/applicant_profile.json`
+Main UX is state-driven in one screen (`/`), with compatibility routes for `/profile` and `/clarification`.
 
-Profile schema keys:
+Step order:
 
-- `summary`: string
-- `skills`: string[]
-- `projects`: `{ name: string, description: string }[]`
-- `experience`: `{ role: string, company: string, duration: string, description: string }[]`
-- `preferences`: `{ locations, work_types, remote_hybrid_on_site, industries, company_size }`
-- `languages`: `{ name: string, level: string }[]`
+`upload` → `processing` → (`clarification` when gaps exist) → `profile` → `job_input` → `cover_helper_processing` → `cover_helper_results`
 
-## Usage Flow
+## Profile schema
 
-1. Open `/` and upload one or more files.
-2. Click `Generate Profile`.
-3. Wait in the processing step while extraction + generation runs.
-4. If the profile is missing preference fields, answer targeted clarification questions (`/clarification` also supported).
-5. Review/edit the refined profile in the profile step.
-6. Click `Move Forward` and paste a target job listing.
-7. Run `Analyze Fit & Strategy` to get structured strengths/gaps/snippets.
-8. Click `Export JSON` to save profile updates.
+Saved JSON uses this shape:
 
-## Notes
+- `summary: str`
+- `skills: list[str]`
+- `projects: list[{name: str, description: str}]`
+- `experience: list[{role: str, company: str, duration: str, description: str}]`
+- `preferences: {locations, work_types, remote_hybrid_on_site, industries, company_size}`
+- `languages: list[{name: str, level: str}]`
 
-- Missing `GOOGLE_API_KEY` will surface a user-facing error when generating profile.
-- Unsupported file types are skipped with warnings.
-- Uploading files resets parsed artifacts and invalidates previous combined text.
-- Legacy `output/applicant_profile.json` files with `projects`/`experience` as string arrays are auto-migrated on load.
-- Clarification merge is non-destructive and idempotent for repeated submissions of the same answers.
-- Cover Letter Helper is analysis-only by design and rejects letter-like output patterns (e.g., salutations/sign-offs or long narrative snippets).
+Legacy saved files where `projects` or `experience` are string lists are accepted and normalized on load.
+
+## Cover helper behavior
+
+The helper is analysis-only (not full letter generation). It returns JSON with:
+
+- `strengths`
+- `weaknesses_gaps`
+- `cover_letter_strategy`
+
+Guardrails reject full-letter style output (e.g., salutations/sign-offs or oversized narrative snippets).
+
+## Tests
+
+Run all tests:
+
+- `pytest`
+
+CI also runs `pytest` on pushes to `main` via GitHub Actions.
+
+## Notes and limits
+
+- Missing `GOOGLE_API_KEY` surfaces an explicit user-facing error.
+- Unsupported upload types are skipped with warnings.
+- Maximum accepted valid uploads per run: `11` total (`1` CV + `10` cover letters).
+- Combined extracted text is capped before model call to keep prompt size bounded.
