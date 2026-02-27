@@ -13,6 +13,13 @@ This guide explains how to build and run the app container locally.
 docker build -t jae:local .
 ```
 
+## 1.2) Pull image from Docker Hub (for users)
+
+```bash
+docker pull <dockerhub-namespace>/<repo-or-app>:latest
+docker run --rm --env-file .env -p 3000:3000 -p 8000:8000 <dockerhub-namespace>/<repo-or-app>:latest
+```
+
 ## 1.1) Recommended: run with Docker Compose
 
 This project now includes `docker-compose.yml` with correct env + port mappings.

@@ -129,7 +129,7 @@ Optional runtime variables:
 - `MODEL_NAME` (optional)
 - `UPLOAD_BASE_DIR` (optional)
 
-## CI image publishing to Azure Container Registry
+## CI image publishing to Docker Hub
 
 Existing GitHub Actions workflow (`.github/workflows/pytest.yml`) now:
 
@@ -143,37 +143,37 @@ Existing GitHub Actions workflow (`.github/workflows/pytest.yml`) now:
 
 Image naming format:
 
-- `<acr-login-server>/<repo-or-app>:<tag>`
+- `<dockerhub-namespace>/<repo-or-app>:<tag>`
 
-Where repository name defaults to GitHub repo name and can be overridden.
+Where image name defaults to GitHub repo name and can be overridden.
 
 ### Required GitHub configuration
 
 Repository **Variables**:
 
-- `ACR_LOGIN_SERVER` (example: `myregistry.azurecr.io`) **required**
+- `DOCKERHUB_NAMESPACE` (optional, defaults to `DOCKERHUB_USERNAME`)
 - `APP_IMAGE_NAME` (optional override)
-- `ACR_AUTH_MODE` (optional: `oidc` (default) or `secrets`)
 
-If using **OIDC** (recommended, default mode), repository **Secrets**:
+Repository **Secrets**:
 
-- `AZURE_CLIENT_ID`
-- `AZURE_TENANT_ID`
-- `AZURE_SUBSCRIPTION_ID`
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN` (Docker Hub access token)
 
-If using **fallback secrets mode** (`ACR_AUTH_MODE=secrets`), repository **Secrets**:
+After setup, every push to `main` runs tests and pushes the container image to Docker Hub.
 
-- `ACR_USERNAME`
-- `ACR_PASSWORD`
+### Pull and run the published image
 
-### One-time Azure setup for OIDC
+```bash
+docker pull mkhlrmnv/verde:latest
+docker run --rm --env-file .env -p 3000:3000 -p 8000:8000 mkhlrmnv/verde:latest
+```
 
-1. Create Azure AD app/service principal.
-2. Add a federated credential for your GitHub repo/branch (`main`).
-3. Grant `AcrPush` role on your ACR to that principal.
-4. Set the three Azure OIDC secrets in GitHub.
+Template:
 
-After setup, every push to `main` runs tests and pushes the container image to ACR.
+```bash
+docker pull <dockerhub-namespace>/<repo-or-app>:latest
+docker run --rm --env-file .env -p 3000:3000 -p 8000:8000 <dockerhub-namespace>/<repo-or-app>:latest
+```
 
 ## Notes and limits
 
