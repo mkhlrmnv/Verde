@@ -104,6 +104,14 @@ This repository includes a multi-stage `Dockerfile` with:
 docker build -t jae:local .
 ```
 
+### Recommended run with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+This uses `docker-compose.yml` and publishes both required ports (`3000` and `8000`).
+
 ### Run container locally
 
 ```bash

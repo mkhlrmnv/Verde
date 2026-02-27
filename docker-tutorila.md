@@ -13,6 +13,22 @@ This guide explains how to build and run the app container locally.
 docker build -t jae:local .
 ```
 
+## 1.1) Recommended: run with Docker Compose
+
+This project now includes `docker-compose.yml` with correct env + port mappings.
+
+```bash
+docker compose up --build
+```
+
+Open: `http://localhost:3000`
+
+Stop:
+
+```bash
+docker compose down
+```
+
 ## 2) Run the container
 
 `GOOGLE_API_KEY` is required for model-backed features.
