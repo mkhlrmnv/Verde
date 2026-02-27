@@ -88,6 +88,85 @@ Run all tests:
 
 CI also runs `pytest` on pushes to `main` via GitHub Actions.
 
+## Container (production-oriented)
+
+This repository includes a multi-stage `Dockerfile` with:
+
+- Python `3.12-slim` base images
+- non-root runtime user
+- reduced build context via `.dockerignore`
+- container healthcheck
+- runtime env-based configuration (no hardcoded secrets)
+
+### Build image locally
+
+```bash
+docker build -t jae:local .
+```
+
+### Run container locally
+
+```bash
+docker run --rm --env-file .env -p 3000:3000 -p 8000:8000 jae:local
+```
+
+This passes all variables from your local `.env` file to the container at runtime.
+The `.env` file is not copied into the image.
+
+Optional runtime variables:
+
+- `PORT` (default `3000`)
+- `BACKEND_PORT` (default `8000`)
+- `GOOGLE_API_KEY` (required for model-backed features)
+- `MODEL_NAME` (optional)
+- `UPLOAD_BASE_DIR` (optional)
+
+## CI image publishing to Azure Container Registry
+
+Existing GitHub Actions workflow (`.github/workflows/pytest.yml`) now:
+
+- runs on push to `main`
+- supports manual trigger (`workflow_dispatch`)
+- runs tests first (`pytest`)
+- builds and pushes Docker image only after tests pass
+- publishes tags:
+   - `latest`
+   - commit SHA (`${GITHUB_SHA}`)
+
+Image naming format:
+
+- `<acr-login-server>/<repo-or-app>:<tag>`
+
+Where repository name defaults to GitHub repo name and can be overridden.
+
+### Required GitHub configuration
+
+Repository **Variables**:
+
+- `ACR_LOGIN_SERVER` (example: `myregistry.azurecr.io`) **required**
+- `APP_IMAGE_NAME` (optional override)
+- `ACR_AUTH_MODE` (optional: `oidc` (default) or `secrets`)
+
+If using **OIDC** (recommended, default mode), repository **Secrets**:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+
+If using **fallback secrets mode** (`ACR_AUTH_MODE=secrets`), repository **Secrets**:
+
+- `ACR_USERNAME`
+- `ACR_PASSWORD`
+
+### One-time Azure setup for OIDC
+
+1. Create Azure AD app/service principal.
+2. Add a federated credential for your GitHub repo/branch (`main`).
+3. Grant `AcrPush` role on your ACR to that principal.
+4. Set the three Azure OIDC secrets in GitHub.
+
+After setup, every push to `main` runs tests and pushes the container image to ACR.
+
 ## Notes and limits
 
 - Missing `GOOGLE_API_KEY` surfaces an explicit user-facing error.
